@@ -1,0 +1,17 @@
+Assumes core monasca-agent is installed
+https://github.com/stackforge/monasca-agent/blob/master/docs/Agent.md
+
+===Install traceStats (Required)===
+$ svn checkout https://scc-forge.lancs.ac.uk/svn-repos/seccrit-internal/ad-evaluator/trunk/trafficStatScripts
+$ cd trafficStatScripts
+$ make
+
+===Install monasca-agent plugin and config===
+$ cp network_stats.py /usr/lib/monasca/agent/custom_checks.d/network_stats.py 
+$ cp network_stats.yaml /usr/lib/monasca/agent/conf.d/network_stats.yaml
+
+===Add mon-agent user sudoers===
+$ ./sudo-mon-agent 
+
+===Restart monasca-agent===
+$ sudo service monasca-agent restart
