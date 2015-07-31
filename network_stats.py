@@ -11,6 +11,10 @@ import Queue
 import math
 import subprocess
 import sys
+import pcap
+import socket
+import dpkt
+import datetime
 
 # project
 import monasca_agent.collector.checks as checks
@@ -18,6 +22,11 @@ import monasca_agent.collector.checks as checks
 log = logging.getLogger(__name__)
 
 class NetworkStats(checks.AgentCheck):
+
+    #
+    #
+    def ip_to_str(self, ip):
+        return socket.inet_ntop(socket.AF_INET, ip)
 
     #
     #
@@ -56,67 +65,71 @@ class NetworkStats(checks.AgentCheck):
     #
     def featExtract(self, q):
 
+        proto = ['TCP', 'UDP']
         currentStats = {}
 
-        tcpdump     = subprocess.Popen('sudo /usr/sbin/tcpdump -w - -U -i eth1', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-        traceStat   = subprocess.Popen('sudo /usr/bin/traceStats -mx', stdin=tcpdump.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-	
-        for line in iter(traceStat.stdout.readline, ""):
+        #just incase timeout occurs
+        while True:     
+            #listen loop - should put interface in config
+            for ts, pkt in pcap.pcap(name='eth1', immediate=True, timeout_ms=60000):
+		
+		eth = dpkt.ethernet.Ethernet(pkt)
 
-            if line == '':
-                continue
+                #non IP packet
+                if eth.type != dpkt.ethernet.ETH_TYPE_IP:
+                    continue
 
-            packet = line.split()
+                ip = eth.data
 
-            if len(packet)  < 7:
-                continue
+                #non TCP | UDP datagram
+                if ip.data.__class__.__name__ not in proto:
+                    continue
 
-            currentTime = float(packet[0])
+                trans = ip.data
 
-            # initial start time
-            if startTime == 0:
-                startTime = currentTime
+                ## add current stats
+                currentStats = q.get()
 
-            ## add current stats
-            currentStats = q.get()
-            # packet/byte counters
-            currentStats['packetcnt'] += 1
-            currentStats['bytecnt'] += int(packet[6])
+		f.write('gotstats')
 
-            # flow counters -- should check if all are present!
-            flowStr = packet[2] + packet[3] + packet[4] + packet[5]
-            if flowStr not in currentStats['flows']:
-                currentStats['flows'].append(flowStr)
-                currentStats['activeflows'] += 1
+                # packet/byte counters
+                currentStats['packetcnt'] += 1
+                currentStats['bytecnt'] += int(ip.len)
 
-            # distributions
-            # byte count 
-            if packet[6] not in currentStats['bytecntdist']:
-                currentStats['bytecntdist'][packet[6]] = 0
-            currentStats['bytecntdist'][packet[6]] += 1
+	        # flow counters -- should check if all are present!
+                flowStr = self.ip_to_str(ip.src) + self.ip_to_str(ip.dst) + str(trans.sport) + str(trans.dport)
+                
+		if flowStr not in currentStats['flows']:
+                    currentStats['flows'].append(flowStr)
+                    currentStats['activeflows'] += 1
 
-            # src IP
-            if packet[2] not in currentStats['srcIPdist']:
-                currentStats['srcIPdist'][packet[2]] = 0
-            currentStats['srcIPdist'][packet[2]] += 1
+                # distributions
+                # byte count 
+                if ip.len not in currentStats['bytecntdist']:
+                    currentStats['bytecntdist'][ip.len] = 0
+                currentStats['bytecntdist'][ip.len] += 1
 
-            # dst IP
-            if packet[3] not in currentStats['dstIPdist']:
-                currentStats['dstIPdist'][packet[3]] = 0
-            currentStats['dstIPdist'][packet[3]] += 1
+                # src IP
+                if self.ip_to_str(ip.src) not in currentStats['srcIPdist']:
+                    currentStats['srcIPdist'][self.ip_to_str(ip.src)] = 0
+                currentStats['srcIPdist'][self.ip_to_str(ip.src)] += 1
 
-            # src port
-            if packet[4] not in currentStats['srcportdist']:
-                currentStats['srcportdist'][packet[4]] = 0
-            currentStats['srcportdist'][packet[4]] += 1
+                # dst IP
+                if self.ip_to_str(ip.dst) not in currentStats['dstIPdist']:
+                    currentStats['dstIPdist'][self.ip_to_str(ip.dst)] = 0
+                currentStats['dstIPdist'][self.ip_to_str(ip.dst)] += 1
 
-            # dst port
-            if packet[5] not in currentStats['dstportdist']:
-                currentStats['dstportdist'][packet[5]] = 0
-            currentStats['dstportdist'][packet[5]] += 1
+                # src port
+                if trans.sport not in currentStats['srcportdist']:
+                    currentStats['srcportdist'][trans.sport] = 0
+                currentStats['srcportdist'][trans.sport] += 1
 
-            q.put(currentStats)
+                # dst port
+                if trans.dport not in currentStats['dstportdist']:
+                    currentStats['dstportdist'][trans.dport] = 0
+                currentStats['dstportdist'][trans.dport] += 1
 
+                q.put(currentStats)
 
     def __init__(self, name, init_config, agent_config):
         super(NetworkStats, self).__init__(name, init_config, agent_config)
