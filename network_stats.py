@@ -76,9 +76,12 @@ class NetworkStats(checks.AgentCheck):
         lts             = 0
 
         #just incase timeout occurs
-        while True:     
+        while True:    
+
+            f = open(file,'r')
+
             # read from pcap - maybe put file name in config?
-            for ts, pkt in dpkt.pcap.Reader(open(file,'r')):
+            for ts, pkt in dpkt.pcap.Reader(f):
 
                 # so the pcap file is read in real time
                 if count == 0:
@@ -89,6 +92,8 @@ class NetworkStats(checks.AgentCheck):
 
                 self.featExtract(q, ts, pkt)
 
+            f.close()
+
     #
     #
     def featExtract(self, q, ts, pkt):
@@ -97,13 +102,13 @@ class NetworkStats(checks.AgentCheck):
 
         #non IP packet
         if eth.type != dpkt.ethernet.ETH_TYPE_IP:
-            continue
+            return
 
         ip = eth.data
 
         #non TCP | UDP datagram
         if ip.data.__class__.__name__ not in ['TCP', 'UDP']:
-            continue
+            return
 
         trans = ip.data
 
@@ -162,14 +167,14 @@ class NetworkStats(checks.AgentCheck):
         file = instance.get("file", '')
 
         # instance variables must be set
-        if name == '' || type == '' || file == '':
+        if name == '' or type == '' or file == '':
             return
 
         if type not in ['interface', 'pcap']:
             return
 
         # first check just initilise
-        if name not in stats_queues:
+        if name not in self.stats_queues:
             #create stats init
             stats = {}
             self.resetStats(stats)
@@ -182,16 +187,16 @@ class NetworkStats(checks.AgentCheck):
             #start thread pass queue item
             if type == 'interface':
                 self.stats_threads[name] = threading.Thread(target=self.interface_loop, args=(self.stats_queues[name], file, ))            
-            else if type == 'pcap':
+            else:
                 self.stats_threads[name] = threading.Thread(target=self.pcap_loop, args=(self.stats_queues[name], file, ))            
 
             self.stats_threads[name].daemon = True
             self.stats_threads[name].start()
 
         else:
-            dimensions = self._set_dimensions({"file", file}, instance)
+            dimensions = self._set_dimensions({"file": file}, instance)
 
-            currentStats = self.q.get()
+            currentStats = self.stats_queues[name].get()
 
             #counter
             self.gauge('net_stat.bytecnt', currentStats['bytecnt'],  dimensions)
@@ -206,5 +211,5 @@ class NetworkStats(checks.AgentCheck):
             self.gauge('net_stat.dstIP_entropy', self.entropy(currentStats['dstIPdist']),  dimensions)
 
             self.resetStats(currentStats)
-            self.q.put(currentStats)
+            self.stats_queues[name].put(currentStats)
         
