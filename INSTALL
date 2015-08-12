@@ -1,17 +1,45 @@
 Assumes core monasca-agent is installed
-https://github.com/stackforge/monasca-agent/blob/master/docs/Agent.md
+https://github.com/stackforge/monasca-agent/blob/master/docs/Agent.
 
-===Install traceStats (Required)===
-$ svn checkout https://scc-forge.lancs.ac.uk/svn-repos/seccrit-internal/ad-evaluator/trunk/trafficStatScripts
-$ cd trafficStatScripts
-$ make
+====Ubuntu (monasca-vagrant)====
+
+===Requirements===
+$ sudo /opt/monasca/bin/pip install -r requirements.txt
 
 ===Install monasca-agent plugin and config===
-$ cp network_stats.py /usr/lib/monasca/agent/custom_checks.d/network_stats.py 
-$ cp network_stats.yaml /usr/lib/monasca/agent/conf.d/network_stats.yaml
+$ cp network_stats.py /usr/lib/monasca/agent/custom_checks.d/network_stats.py
+$ cp network_stats.yaml /etc/monasca/agent/conf.d/network_stats.yaml
 
-===Add mon-agent user sudoers===
-$ ./sudo-mon-agent 
+===Allow python to newtok capture===
+$ group add pcap
+$ usermod -a -G pcap mon-agent
+$ chgrp pcap /opt/monasca/bin/python
+$ chmod 750 /opt/monasca/bin/python
+$ setcap cap_net_raw,cap_net_admin=eip /opt/monasca/bin/python
 
 ===Restart monasca-agent===
 $ sudo service monasca-agent restart
+
+
+====CentOS (OpenStack testbed)====
+
+===Requirements===
+yum install libpcap-devel
+yum install python-test
+sudo pip install -r requirements.txt
+
+===Install monasca-agent plugin and config===
+$ cp network_stats.py /usr/lib/python2.7/site-packages/monasca_agent/collector/checks_d/network_stats.py
+$ cp network_stats.yaml /etc/monasca/agent/conf.d/network_stats.yaml
+
+===Allow python to newtok capture===
+$ groupadd pcap
+$ usermod -a -G pcap mon-agent
+$ chgrp pcap /opt/monasca/bin/python
+$ chmod 750 /opt/monasca/bin/python
+$ setcap cap_net_raw,cap_net_admin=eip /opt/monasca/bin/python
+
+===Restart monasca-agent===
+$ sudo service monasca-agent restart
+
+

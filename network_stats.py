@@ -14,6 +14,7 @@ import sys
 import pcap
 import socket
 import dpkt
+import time
 import datetime
 
 # project
@@ -61,106 +62,149 @@ class NetworkStats(checks.AgentCheck):
         stats['srcIPdist']      = {}
         stats['dstIPdist']      = {}
 
-    #
-    #
-    def featExtract(self, q):
-
-        proto = ['TCP', 'UDP']
-        currentStats = {}
-
+    def interface_loop(self, q, file):
         #just incase timeout occurs
         while True:     
             #listen loop - should put interface in config
-            for ts, pkt in pcap.pcap(name='eth1', immediate=True, timeout_ms=60000):
-		
-		eth = dpkt.ethernet.Ethernet(pkt)
+            for ts, pkt in pcap.pcap(name=file, immediate=True, timeout_ms=60000):
 
-                #non IP packet
-                if eth.type != dpkt.ethernet.ETH_TYPE_IP:
-                    continue
+                self.featExtract(q, ts, pkt)
 
-                ip = eth.data
 
-                #non TCP | UDP datagram
-                if ip.data.__class__.__name__ not in proto:
-                    continue
+    def pcap_loop(self, q, file):
+        count           = 0
+        lts             = 0
 
-                trans = ip.data
+        #just incase timeout occurs
+        while True:     
+            # read from pcap - maybe put file name in config?
+            for ts, pkt in dpkt.pcap.Reader(open(file,'r')):
 
-                ## add current stats
-                currentStats = q.get()
+                # so the pcap file is read in real time
+                if count == 0:
+                    lts = ts
+                else:
+                    time.sleep(ts - lts)
+                    lts = ts
 
-		f.write('gotstats')
+                self.featExtract(q, ts, pkt)
 
-                # packet/byte counters
-                currentStats['packetcnt'] += 1
-                currentStats['bytecnt'] += int(ip.len)
+    #
+    #
+    def featExtract(self, q, ts, pkt):
 
-	        # flow counters -- should check if all are present!
-                flowStr = self.ip_to_str(ip.src) + self.ip_to_str(ip.dst) + str(trans.sport) + str(trans.dport)
-                
-		if flowStr not in currentStats['flows']:
-                    currentStats['flows'].append(flowStr)
-                    currentStats['activeflows'] += 1
+        eth = dpkt.ethernet.Ethernet(pkt)
 
-                # distributions
-                # byte count 
-                if ip.len not in currentStats['bytecntdist']:
-                    currentStats['bytecntdist'][ip.len] = 0
-                currentStats['bytecntdist'][ip.len] += 1
+        #non IP packet
+        if eth.type != dpkt.ethernet.ETH_TYPE_IP:
+            continue
 
-                # src IP
-                if self.ip_to_str(ip.src) not in currentStats['srcIPdist']:
-                    currentStats['srcIPdist'][self.ip_to_str(ip.src)] = 0
-                currentStats['srcIPdist'][self.ip_to_str(ip.src)] += 1
+        ip = eth.data
 
-                # dst IP
-                if self.ip_to_str(ip.dst) not in currentStats['dstIPdist']:
-                    currentStats['dstIPdist'][self.ip_to_str(ip.dst)] = 0
-                currentStats['dstIPdist'][self.ip_to_str(ip.dst)] += 1
+        #non TCP | UDP datagram
+        if ip.data.__class__.__name__ not in ['TCP', 'UDP']:
+            continue
 
-                # src port
-                if trans.sport not in currentStats['srcportdist']:
-                    currentStats['srcportdist'][trans.sport] = 0
-                currentStats['srcportdist'][trans.sport] += 1
+        trans = ip.data
 
-                # dst port
-                if trans.dport not in currentStats['dstportdist']:
-                    currentStats['dstportdist'][trans.dport] = 0
-                currentStats['dstportdist'][trans.dport] += 1
+        ## add current stats
+        currentStats = q.get()
 
-                q.put(currentStats)
+        # packet/byte counters
+        currentStats['packetcnt'] += 1
+        currentStats['bytecnt'] += int(ip.len)
+
+        # flow counters -- should check if all are present!
+        flowStr = self.ip_to_str(ip.src) + self.ip_to_str(ip.dst) + str(trans.sport) + str(trans.dport)
+        
+        if flowStr not in currentStats['flows']:
+            currentStats['flows'].append(flowStr)
+            currentStats['activeflows'] += 1
+
+        # distributions
+        # byte count 
+        if ip.len not in currentStats['bytecntdist']:
+            currentStats['bytecntdist'][ip.len] = 0
+        currentStats['bytecntdist'][ip.len] += 1
+
+        # src IP
+        if self.ip_to_str(ip.src) not in currentStats['srcIPdist']:
+            currentStats['srcIPdist'][self.ip_to_str(ip.src)] = 0
+        currentStats['srcIPdist'][self.ip_to_str(ip.src)] += 1
+
+        # dst IP
+        if self.ip_to_str(ip.dst) not in currentStats['dstIPdist']:
+            currentStats['dstIPdist'][self.ip_to_str(ip.dst)] = 0
+        currentStats['dstIPdist'][self.ip_to_str(ip.dst)] += 1
+
+        # src port
+        if trans.sport not in currentStats['srcportdist']:
+            currentStats['srcportdist'][trans.sport] = 0
+        currentStats['srcportdist'][trans.sport] += 1
+
+        # dst port
+        if trans.dport not in currentStats['dstportdist']:
+            currentStats['dstportdist'][trans.dport] = 0
+        currentStats['dstportdist'][trans.dport] += 1
+
+        q.put(currentStats)
 
     def __init__(self, name, init_config, agent_config):
         super(NetworkStats, self).__init__(name, init_config, agent_config)
 
-        currentStats = {}
-        self.resetStats(currentStats)
-
-        self.q = Queue.Queue(1)
-        self.q.put(currentStats)
-
-        self.t = threading.Thread(target=self.featExtract, args=(self.q, ))
-        self.t.daemon = True
-        self.t.start()
+        self.stats_threads  = {}
+        self.stats_queues   = {}
 
     def check(self, instance):
-        dimensions = self._set_dimensions(None, instance)
 
-	currentStats = self.q.get()
+        name = instance.get("name", '')
+        type = instance.get("type", '')
+        file = instance.get("file", '')
 
-	#counter
-        self.gauge('net_stat.bytecnt', currentStats['bytecnt'],  dimensions)
-        self.gauge('net_stat.packetcnt', currentStats['packetcnt'],  dimensions)
-        self.gauge('net_stat.activeflows', currentStats['activeflows'],  dimensions)
+        # instance variables must be set
+        if name == '' || type == '' || file == '':
+            return
 
-	#distributions
-        self.gauge('net_stat.byte_count_entropy', self.entropy(currentStats['bytecntdist']),  dimensions)
-        self.gauge('net_stat.src_port_entropy', self.entropy(currentStats['srcportdist']),  dimensions)
-        self.gauge('net_stat.dst_port_entropy', self.entropy(currentStats['dstportdist']),  dimensions)
-        self.gauge('net_stat.srcIP_entropy', self.entropy(currentStats['srcIPdist']),  dimensions)
-        self.gauge('net_stat.dstIP_entropy', self.entropy(currentStats['dstIPdist']),  dimensions)
+        if type not in ['interface', 'pcap']:
+            return
 
-        self.resetStats(currentStats)
-        self.q.put(currentStats)
+        # first check just initilise
+        if name not in stats_queues:
+            #create stats init
+            stats = {}
+            self.resetStats(stats)
+
+            #create queue item in queue dictionary
+            self.stats_queues[name] = Queue.Queue(1)
+            self.stats_queues[name].put(stats) 
+
+            #check type
+            #start thread pass queue item
+            if type == 'interface':
+                self.stats_threads[name] = threading.Thread(target=self.interface_loop, args=(self.stats_queues[name], file, ))            
+            else if type == 'pcap':
+                self.stats_threads[name] = threading.Thread(target=self.pcap_loop, args=(self.stats_queues[name], file, ))            
+
+            self.stats_threads[name].daemon = True
+            self.stats_threads[name].start()
+
+        else:
+            dimensions = self._set_dimensions({"file", file}, instance)
+
+            currentStats = self.q.get()
+
+            #counter
+            self.gauge('net_stat.bytecnt', currentStats['bytecnt'],  dimensions)
+            self.gauge('net_stat.packetcnt', currentStats['packetcnt'],  dimensions)
+            self.gauge('net_stat.activeflows', currentStats['activeflows'],  dimensions)
+
+            #distributions
+            self.gauge('net_stat.byte_count_entropy', self.entropy(currentStats['bytecntdist']),  dimensions)
+            self.gauge('net_stat.src_port_entropy', self.entropy(currentStats['srcportdist']),  dimensions)
+            self.gauge('net_stat.dst_port_entropy', self.entropy(currentStats['dstportdist']),  dimensions)
+            self.gauge('net_stat.srcIP_entropy', self.entropy(currentStats['srcIPdist']),  dimensions)
+            self.gauge('net_stat.dstIP_entropy', self.entropy(currentStats['dstIPdist']),  dimensions)
+
+            self.resetStats(currentStats)
+            self.q.put(currentStats)
         

@@ -1,4 +1,18 @@
 init_config: null
 
 instances:
-    - name: network_stats
+# name - UNIQUE name
+# type - interface | pcap
+# file - interface name | pcap file name
+
+#example
+#- name: vm1_netstat
+#  type: interface
+#  file: br0
+
+    - name: eth0_stats
+      type: interface
+      file: eth0
+    - name: commsmain_pcap_stats
+      type: pcap
+      file: /root/commsmain-2.pcap
