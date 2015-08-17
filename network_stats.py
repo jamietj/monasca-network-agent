@@ -85,7 +85,8 @@ class NetworkStats(checks.AgentCheck):
 
                 # so the pcap file is read in real time
                 if count == 0:
-                    lts = ts
+                    lts     = ts
+                    count   = 1
                 else:
                     time.sleep(ts - lts)
                     lts = ts
