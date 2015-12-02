@@ -10,9 +10,9 @@ instances:
 #  type: interface
 #  file: br0
 
-    - name: eth0_stats
-      type: interface
-      file: eth0
+#    - name: eth0_stats
+#      type: interface
+#      file: eth0
     - name: commsmain_pcap_stats
       type: pcap
-      file: /root/commsmain-2.pcap
+      file: /root/commsmain.pcap

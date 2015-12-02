@@ -72,12 +72,11 @@ class NetworkStats(checks.AgentCheck):
 
 
     def pcap_loop(self, q, file):
-        count           = 0
-        lts             = 0
 
         #just incase timeout occurs
         while True:    
-
+            count = 0
+            lts = 0
             f = open(file,'r')
 
             # read from pcap - maybe put file name in config?

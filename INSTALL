@@ -4,10 +4,12 @@ https://github.com/stackforge/monasca-agent/blob/master/docs/Agent.
 ====Ubuntu (monasca-vagrant)====
 
 ===Requirements===
+$ sudo apt-get install libpcap-dev
 $ sudo /opt/monasca/bin/pip install -r requirements.txt
 
 ===Install monasca-agent plugin and config===
-$ cp network_stats.py /usr/lib/monasca/agent/custom_checks.d/network_stats.py
+$ cp commsmain.pcap /root/commsmain.pcap
+$ cp network_stats.py /usr/local/lib/python2.7/dist-packages/monasca_agent/collector/checks_d/
 $ cp network_stats.yaml /etc/monasca/agent/conf.d/network_stats.yaml
 
 ===Allow python to newtok capture===
